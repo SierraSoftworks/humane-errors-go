@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+
+	"go.uber.org/zap"
 )
 
 var tmpl = template.Must(template.New("").Parse(strings.TrimSpace(`
@@ -55,6 +57,9 @@ type Error interface {
 	// The Cause method returns the error which caused this one to be raised.
 	// This may be a linked list of errors pointing to the underlying failure.
 	Cause() error
+
+	// IntoZapLog converts the error into []zap.Field for logging purposes.
+	IntoZapLog() []zap.Field
 }
 
 type humaneError struct {
@@ -153,4 +158,34 @@ func (e *humaneError) Advice() []string {
 // will be aggregated when rendering.
 func (e *humaneError) Cause() error {
 	return e.cause
+}
+
+// IntoZapLog converts the error into []zap.Field for logging purposes.
+func (e *humaneError) IntoZapLog() []zap.Field {
+	context := struct {
+		Advice []string
+		Causes []error
+	}{
+		Advice: e.advice,
+		Causes: []error{},
+	}
+
+	cause := e.cause
+	for cause != nil {
+		context.Causes = append(context.Causes, cause)
+
+		if cause, ok := e.cause.(interface {
+			Advice() []string
+		}); ok {
+			context.Advice = append(cause.Advice(), context.Advice...)
+		}
+
+		cause = errors.Unwrap(cause)
+	}
+
+	zapFields := make([]zap.Field, 0)
+	zapFields = append(zapFields, zap.Errors("causes", context.Causes))
+	zapFields = append(zapFields, zap.Strings("advice", context.Advice))
+	zapFields = append(zapFields, zap.Error(errors.New(e.message)))
+	return zapFields
 }
