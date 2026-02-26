@@ -63,18 +63,75 @@ type humaneError struct {
 	cause   error
 }
 
-// The New method constructs a humane error without a defined cause.
+// Option is a functional option that configures a humane error
+// created with [Newf] or [Wrapf]. Options provide a flexible,
+// extensible way to attach metadata such as advice to an error.
+type Option interface {
+	apply(*humaneError)
+}
+
+type adviceOption struct {
+	advice []string
+}
+
+func (o *adviceOption) apply(e *humaneError) {
+	e.advice = append(e.advice, o.advice...)
+}
+
+// WithAdvice returns an [Option] that attaches one or more pieces of advice
+// to a humane error. Multiple pieces of advice can be provided in a single
+// call, and multiple WithAdvice options will append to the error's advice list.
+func WithAdvice(advice ...string) Option {
+	return &adviceOption{advice: advice}
+}
+
+// parseArgs separates format arguments from Options in a mixed variadic slice.
+func parseArgs(args []any) (fmtArgs []any, opts []Option) {
+	for _, a := range args {
+		if o, ok := a.(Option); ok {
+			opts = append(opts, o)
+		} else {
+			fmtArgs = append(fmtArgs, a)
+		}
+	}
+	return
+}
+
+// applyOptions applies a slice of Options to a humaneError.
+func applyOptions(e *humaneError, opts []Option) {
+	for _, o := range opts {
+		o.apply(e)
+	}
+}
+
+// New constructs a humane error without a defined cause.
 // It is commonly used when creating an initial error, in contrast
-// to the `Wrap` method which is used to wrap an existing error.
+// to [Wrap] which is used to wrap an existing error.
 func New(message string, advice ...string) Error {
 	return &humaneError{message, advice, nil}
 }
 
-// The Wrap method constructs a human error which wraps an existing error.
-// It is commonly used when another error has resulted in something that should
-// be bubbled up to the user to handle.
-// If `nil` is provided as the cause, this method will return `nil` as well,
-// allowing it to safely wrap optional errors and currying their presence correctly.
+// Newf constructs a humane error with a formatted message and functional options.
+// Format arguments and [Option] values can be freely intermixed in the variadic
+// args; any argument implementing [Option] is extracted and applied to the error,
+// while the remaining arguments are passed to [fmt.Sprintf] along with the
+// format string.
+func Newf(format string, args ...any) Error {
+	fmtArgs, opts := parseArgs(args)
+
+	e := &humaneError{
+		message: fmt.Sprintf(format, fmtArgs...),
+	}
+	applyOptions(e, opts)
+
+	return e
+}
+
+// Wrap constructs a humane error which wraps an existing error.
+// It is commonly used when another error has resulted in something that
+// should be bubbled up to the user to handle.
+// If nil is provided as the cause, this function will return nil as well,
+// allowing it to safely wrap optional errors and curry their presence correctly.
 func Wrap(cause error, message string, advice ...string) Error {
 	if cause == nil {
 		return nil
@@ -83,8 +140,32 @@ func Wrap(cause error, message string, advice ...string) Error {
 	return &humaneError{message, advice, cause}
 }
 
-// The Display method implements Go's `error` interface and returns a templated
-// error message describing what a user may do to respond to the issue.
+// Wrapf constructs a humane error which wraps an existing error, with a
+// formatted message and functional options. Format arguments and [Option]
+// values can be freely intermixed in the variadic args; any argument
+// implementing [Option] is extracted and applied to the error, while the
+// remaining arguments are passed to [fmt.Sprintf] along with the format string.
+// If nil is provided as the cause, this function will return nil as well,
+// allowing it to safely wrap optional errors and curry their presence correctly.
+func Wrapf(cause error, format string, args ...any) Error {
+	if cause == nil {
+		return nil
+	}
+
+	fmtArgs, opts := parseArgs(args)
+
+	e := &humaneError{
+		message: fmt.Sprintf(format, fmtArgs...),
+		cause:   cause,
+	}
+	applyOptions(e, opts)
+
+	return e
+}
+
+// Display returns a structured error string which provides the user with
+// advice on how best to respond, along with information about the underlying
+// cause of the error.
 func (e *humaneError) Display() string {
 	b := bytes.NewBufferString("")
 
