@@ -183,10 +183,10 @@ func (e *humaneError) Display() string {
 	for cause != nil {
 		context.Causes = append(context.Causes, cause)
 
-		if cause, ok := e.cause.(interface {
+		if h, ok := cause.(interface {
 			Advice() []string
 		}); ok {
-			context.Advice = append(cause.Advice(), context.Advice...)
+			context.Advice = append(h.Advice(), context.Advice...)
 		}
 
 		cause = errors.Unwrap(cause)
