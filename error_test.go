@@ -47,6 +47,51 @@ This was caused by:
  - This code is broken`, err.Display())
 }
 
+func TestErrorWithDeepCauseAdviceRendersOnce(t *testing.T) {
+	err := humane.Wrap(
+		humane.Wrap(
+			errors.New("disk full"),
+			"failed to write file",
+			"free up some disk space",
+		),
+		"failed to save settings",
+		"try saving again",
+	)
+
+	assert.Equal(t, `failed to save settings
+
+To fix this, you can try:
+ - free up some disk space
+ - try saving again
+
+This was caused by:
+ - failed to write file
+ - disk full`, err.Display())
+}
+
+func TestErrorWithAdviceAtMultipleDepths(t *testing.T) {
+	err := humane.Wrap(
+		humane.Wrap(
+			humane.New("token expired", "log in again"),
+			"failed to authenticate",
+			"check your credentials",
+		),
+		"failed to sync",
+		"retry the sync",
+	)
+
+	assert.Equal(t, `failed to sync
+
+To fix this, you can try:
+ - log in again
+ - check your credentials
+ - retry the sync
+
+This was caused by:
+ - failed to authenticate
+ - token expired`, err.Display())
+}
+
 func TestNewf(t *testing.T) {
 	err := humane.Newf("failed to resolve user %s", "alice@example.com",
 		humane.WithAdvice("ensure the user exists"),
